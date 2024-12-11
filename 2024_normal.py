@@ -143,13 +143,6 @@ if __name__ == "__main__":
     dnn_yolo = Yolov8("yolov8n", device_name="GPU")
     print("yolo")
     net_pose = HumanPoseEstimation(device_name="GPU")
-
-    _cmd_vel = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
-    topic_imu = "/imu/data"
-    _imu = None
-    rospy.Subscriber(topic_imu, Imu, callback_imu)
-    rospy.wait_for_message(topic_imu, Imu)
-
     step = "get"  # remember
     f_cnt = 0
     step2 = "dead"  # remember
@@ -175,7 +168,7 @@ if __name__ == "__main__":
     pose_cnt_cnt=0
     #say("start the program")
     while not rospy.is_shutdown():
-        rospy.Rate(5).sleep()
+        rospy.Rate(15).sleep()
 
         if frame2 is None:
             print("frame2")
@@ -194,116 +187,101 @@ if __name__ == "__main__":
         s_d,s_c,dis_list,al,points = [],[],[],[],[]
         
         outframe = frame2.copy()
-        az,bz=0,0
-        
-        if getframeyyy=="person":
-            az, bz = 0, 0
-            A = []
-            B = []
-            yu = 0
-            poses = net_pose.forward(outframe)
-            if len(poses) > 0:
-                YN = -1
-                a_num, b_num = 9, 7
-                for issack in range(len(poses)):
-                    yu = 0
-                    if poses[issack][9][2] > 0 and poses[issack][7][2] > 0:
-                        YN = 0
-                        a_num, b_num = 9, 7
-                        A = list(map(int, poses[issack][a_num][:2]))
-                        if (640 >= A[0] >= 0 and 320 >= A[1] >= 0):
-                            ax, ay, az = get_real_xyz(depth2, A[0], A[1])
-                            if az <= 1800 and az != 0:
-                                yu += 1
-                        B = list(map(int, poses[issack][b_num][:2]))
-                        if (640 >= B[0] >= 0 and 320 >= B[1] >= 0):
-                            bx, by, bz = get_real_xyz(depth2, B[0], B[1])
-                            if bz <= 1800 and bz != 0:
-                                yu += 1
-                    if yu >= 2:
-                        break
-            print(A, B)
-            if len(A) != 0 and len(B) != 0 and yu >= 2:
-                cv2.circle(outframe, (A[0], A[1]), 3, (255, 255, 0), -1)
-                cv2.circle(outframe, (B[0], B[1]), 3, (255, 255, 0), -1)
-            image = cv2.cvtColor(outframe, cv2.COLOR_BGR2RGB)
-            detections = dnn_yolo.forward(image)[0]["det"]
-            for i, detection in enumerate(detections):
-                print(detection)
+        az, bz = 0, 0
+        A = []
+        B = []
+        yu = 0
+        poses = net_pose.forward(outframe)
+        if len(poses) > 0:
+            YN = -1
+            a_num, b_num = 10,8
+            for issack in range(len(poses)):
+                yu = 0
+                if poses[issack][10][2] > 0 and poses[issack][8][2] > 0:
+                    YN = 0
+                    a_num, b_num = 10, 8
+                    A = list(map(int, poses[issack][a_num][:2]))
+                    if (640 >= A[0] >= 0 and 320 >= A[1] >= 0):
+                        ax, ay, az = get_real_xyz(depth2, A[0], A[1])
+                        if az <= 1800 and az != 0:
+                            yu += 1
+                    B = list(map(int, poses[issack][b_num][:2]))
+                    if (640 >= B[0] >= 0 and 320 >= B[1] >= 0):
+                        bx, by, bz = get_real_xyz(depth2, B[0], B[1])
+                        if bz <= 1800 and bz != 0:
+                            yu += 1
+        #print(A, B)
+        if len(A) != 0 and len(B) != 0 and yu >= 2:
+            cv2.circle(outframe, (A[0], A[1]), 3, (255, 255, 0), -1)
+            cv2.circle(outframe, (B[0], B[1]), 3, (255, 255, 0), -1)
+        image = cv2.cvtColor(outframe, cv2.COLOR_BGR2RGB)
+        detections = dnn_yolo.forward(image)[0]["det"]
+        for i, detection in enumerate(detections):
+            #print(detection)
+            x1, y1, x2, y2, score, class_id = map(int, detection)
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            score = detection[4]
+            if class_id == 39 and score>=0.35 and cy<=480:
+                #print(cx,cy,"position bottle")
+                cx=min(cx,640)
+                cy=min(cy,480-1)
+                k2, kk1, kkkz = get_real_xyz(depth2, cx, cy)
+                al.append([x1, y1, x2, y2, score, class_id])
+                # print(float(score), class_id)
+                hhh=str(class_id)+" " +str(k2)+" "+str(kk1)+" "+str(kkkz)
+                cv2.rectangle(outframe, (x1, y1), (x2, y2), (0, 255, 0), 5)
+                cv2.putText(outframe, str(hhh), (x1 + 5, y1 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        if len(A) != 0 and len(B)!=0:
+            bb = sorted(al, key=(lambda x: x[0]))
+            for i, detection in enumerate(bb):
+                # print(detection)
                 x1, y1, x2, y2, score, class_id = map(int, detection)
-                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
                 score = detection[4]
-                if class_id == 39 and score>=0.25 and cy<=480:
-                    print(cx,cy,"position bottle")
-                    cx=min(cx,640)
-                    cy=min(cy,480-1)
-                    k2, kk1, kkkz = get_real_xyz(depth2, cx, cy)
-                    al.append([x1, y1, x2, y2, score, class_id])
-                    # print(float(score), class_id)
-                    hhh=str(class_id)+" " +str(k2)+" "+str(kk1)+" "+str(kkkz)
-                    cv2.rectangle(outframe, (x1, y1), (x2, y2), (0, 255, 0), 5)
-                    cv2.putText(outframe, str(hhh), (x1 + 5, y1 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-            if len(A) != 0 and len(B)!=0:
-                bb = sorted(al, key=(lambda x: x[0]))
-                for i, detection in enumerate(bb):
-                    # print(detection)
-                    x1, y1, x2, y2, score, class_id = map(int, detection)
-                    score = detection[4]
-                    # print(id)
-                    ggg = 1
-                    bottle.append(detection)
-                    E += 1
-                    cx1 = (x2 - x1) // 2 + x1
-                    cy1 = (y2 - y1) // 2 + y1
+                # print(id)
+                ggg = 1
+                bottle.append(detection)
+                E += 1
+                cx1 = (x2 - x1) // 2 + x1
+                cy1 = (y2 - y1) // 2 + y1
 
-                    px, py, pz = get_real_xyz(depth2, cx1, cy1)
-                    dis_list.append(pz)
-                    cnt = get_distance(px, py, pz, ax, ay, az, bx, by, bz)
-                    cv2.putText(outframe, str(int(cnt) // 10), (x1 + 5, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.15,
-                                        (0, 0, 255), 2)
-                    cnt = int(cnt)
-                    '''
-                    if cnt != 0 and cnt <= 600:
-                        cnt = int(cnt)
-                    else:
-                        cnt = 9999'''
-                    s_c.append(cnt)
-                    s_d.append(pz)
+                px, py, pz = get_real_xyz(depth2, cx1, cy1)
+                dis_list.append(pz)
+                cnt = get_distance(px, py, pz, ax, ay, az, bx, by, bz)
+                cv2.putText(outframe, str(int(cnt) // 10), (x1 + 5, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.15,
+                                    (0, 0, 255), 2)
+                cnt = int(cnt)
+                s_c.append(cnt)
+                s_d.append(pz)
 
-                if ggg == 0: s_c = [9999]
-                TTT = min(s_c)
-                E = s_c.index(TTT)
-                for i, detection in enumerate(bottle):
-                    # print("1")
-                    x1, y1, x2, y2, score, class_id = map(int, detection)
+            if ggg == 0: s_c = [9999]
+            TTT = min(s_c)
+            E = s_c.index(TTT)
+            for i, detection in enumerate(bottle):
+                # print("1")
+                x1, y1, x2, y2, score, class_id = map(int, detection)
+                
+                if (class_id == 39):
                     
-                    if (class_id == 39):
+                    if i == E:
+                        cx1 = (x2 - x1) // 2 + x1
+                        cy1 = (y2 - y1) // 2 + y1
+                        cv2.putText(outframe, str(int(TTT) // 10), (x1 + 5, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.15,
+                                    (0, 0, 255), 2)
+                        cv2.rectangle(outframe, (x1, y1), (x2, y2), (0, 0, 255), 5)
+                        if i == 0: b1 += 1
+                        if i == 1: b2 += 1
+                        if i == 2: b3 += 1
+                        _, _, dddd1 = get_real_xyz(depth2, cx1, cy1)
+
+                    else:
+                        v = s_c[i]
                         
-                        if i == E:
-                            cx1 = (x2 - x1) // 2 + x1
-                            cy1 = (y2 - y1) // 2 + y1
-                            cv2.putText(outframe, str(int(TTT) // 10), (x1 + 5, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.15,
-                                        (0, 0, 255), 2)
-                            cv2.rectangle(outframe, (x1, y1), (x2, y2), (0, 0, 255), 5)
-                            if i == 0: b1 += 1
-                            if i == 1: b2 += 1
-                            if i == 2: b3 += 1
-                            _, _, dddd1 = get_real_xyz(depth2, cx1, cy1)
-
-                            break
-
-                        else:
-                            v = s_c[i]
-                            
-                            cv2.putText(outframe, str(int(v)), (x1 + 5, y1 - 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
-                                        2)
-                #if b1 == max(b1, b2, b3): mark = 0
-                #if b2 == max(b1, b2, b3): mark = 1
-                #if b3 == max(b1, b2, b3): mark = 2
-                times_cnt = 5
-                if b1 >= times_cnt or b2 >= times_cnt or b3 >= times_cnt:
-                    b1, b2, b3 = 0, 0, 0
-                print("b1: %d b2: %d b3: %d" % (b1, b2, b3))
+                        cv2.putText(outframe, str(int(v)), (x1 + 5, y1 - 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
+                                    2)
+            times_cnt = 5
+            if b1 >= times_cnt or b2 >= times_cnt or b3 >= times_cnt:
+                b1, b2, b3 = 0, 0, 0
+            #print("b1: %d b2: %d b3: %d" % (b1, b2, b3))
         frame2 = cv2.resize(outframe, (640 * 2, 480 * 2))
         cv2.imshow("image", frame2)
         key = cv2.waitKey(1)
